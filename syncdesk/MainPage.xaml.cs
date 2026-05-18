@@ -56,6 +56,15 @@ namespace syncdesk
             FullInventoryList.ItemsSource = _fullDisplayProducts;
 
             _lastUpdateTime = Preferences.Default.Get("LastSyncTime", DateTime.Now);
+
+            // --- LOAD SAVED SETTINGS ---
+            ThemePicker.SelectedIndex = Preferences.Default.Get("AppTheme", 0);
+            AutoRefreshSwitch.IsToggled = Preferences.Default.Get("AutoRefreshEnabled", true);
+            RefreshFrequencyPicker.SelectedIndex = Preferences.Default.Get("AutoRefreshIntervalIndex", 0);
+
+            // Apply the theme immediately
+            ApplyTheme(ThemePicker.SelectedIndex);
+
             LoadInventory();
             StartAutoRefresh();
             StartClockTimer();
@@ -73,11 +82,31 @@ namespace syncdesk
 
         private void StartAutoRefresh()
         {
-            _refreshTimer = Dispatcher.CreateTimer();
-            // Restored the 15-second timer
-            _refreshTimer.Interval = TimeSpan.FromSeconds(15);
-            _refreshTimer.Tick += (s, e) => { LoadInventory(); };
-            _refreshTimer.Start();
+            if (_refreshTimer == null)
+            {
+                _refreshTimer = Dispatcher.CreateTimer();
+                _refreshTimer.Tick += (s, e) => { LoadInventory(); };
+            }
+
+            UpdateTimerInterval();
+
+            // Only start it if the setting is turned on!
+            if (Preferences.Default.Get("AutoRefreshEnabled", true))
+            {
+                _refreshTimer.Start();
+            }
+        }
+
+        private void UpdateTimerInterval()
+        {
+            int index = Preferences.Default.Get("AutoRefreshIntervalIndex", 0);
+            int seconds = 15; // Default
+
+            if (index == 1) seconds = 30;
+            else if (index == 2) seconds = 60;
+            else if (index == 3) seconds = 300; // 5 minutes
+
+            _refreshTimer.Interval = TimeSpan.FromSeconds(seconds);
         }
 
         private void StartClockTimer()
@@ -168,6 +197,7 @@ namespace syncdesk
                 }
 
                 UpdateNotificationBadge();
+                SyncNotifications();
             }
         }
 
@@ -393,13 +423,24 @@ namespace syncdesk
             {
                 if (product.stock < product.low_stock_threshold)
                 {
-                    var existing = _allNotifications.FirstOrDefault(n => n.Type == "LowStock" && n.ReferenceId == product.id && !n.IsRead);
+                    // THE FIX: We removed '&& !n.IsRead'. Now it checks if ANY notification exists so it doesn't spam you!
+                    var existing = _allNotifications.FirstOrDefault(n => n.Type == "LowStock" && n.ReferenceId == product.id);
+
                     if (existing == null)
                     {
                         var notif = new AppNotification { Title = "Low Stock Alert", ProductName = product.product_name, Description = $"Only {product.stock} left in stock.", Type = "LowStock", ReferenceId = product.id, Date = DateTime.Now.ToString("MMM dd, yyyy hh:mm tt"), IsRead = false };
                         _allNotifications.Insert(0, notif);
                         madeChanges = true;
                         if (_isFirstLoadComplete) ShowLocalNotification(notif.Title, notif.Description, product.id);
+                    }
+                }
+                else
+                {
+                    // SMART CLEANUP: If the stock is healthy again, delete the old alert so it can trigger again in the future!
+                    int removedCount = _allNotifications.RemoveAll(n => n.Type == "LowStock" && n.ReferenceId == product.id);
+                    if (removedCount > 0)
+                    {
+                        madeChanges = true;
                     }
                 }
             }
@@ -413,7 +454,6 @@ namespace syncdesk
                     var notif = new AppNotification { Title = "New Activity", ProductName = log.product_name, Description = log.action, Type = "AuditLog", ReferenceId = log.id, Date = log.date, IsRead = false };
                     _allNotifications.Insert(0, notif);
                     madeChanges = true;
-                    // Add 10000 to the ID so it doesn't conflict with product push notifications!
                     if (_isFirstLoadComplete) ShowLocalNotification(notif.Title, $"{notif.ProductName}: {notif.Description}", log.id + 10000);
                 }
             }
@@ -460,6 +500,22 @@ namespace syncdesk
             UpdateNotificationBadge();
         }
 
+        private void OnDeleteSelectedClicked(object sender, EventArgs e)
+        {
+            var itemsToDelete = _allNotifications.Where(n => n.IsSelected).ToList();
+
+            if (itemsToDelete.Count == 0) return;
+
+            foreach (var item in itemsToDelete)
+            {
+                _allNotifications.Remove(item);
+            }
+
+            _inventoryService.SaveLocalNotifications(_allNotifications);
+            UpdateNotificationsList();
+            UpdateNotificationBadge();
+        }
+
         private void OnNotificationViewClicked(object sender, EventArgs e)
         {
             var button = sender as Button;
@@ -499,22 +555,30 @@ namespace syncdesk
 
         private void OnNotificationsClicked(object sender, EventArgs e)
         {
-            HideAllViews();
+            HideAllViews(); 
+            TopSearchBarArea.IsVisible = false;
             NotificationsView.IsVisible = true;
             UpdateNotificationsList();
         }
 
-        private async void OnSettingsClicked(object sender, EventArgs e)
+        private void OnSettingsClicked(object sender, EventArgs e)
         {
-            await DisplayAlertAsync("Settings", "Settings area coming soon", "OK");
+            HideAllViews(); 
+            TopSearchBarArea.IsVisible = false;
+            SettingsView.IsVisible = true;
+
         }
+
         private void HideAllViews()
         {
             DashboardView.IsVisible = false;
             ProductDetailsView.IsVisible = false;
             AllProductsView.IsVisible = false;
             AllLogsView.IsVisible = false;
-            LogDetailsView.IsVisible = false; // Added this!
+            LogDetailsView.IsVisible = false;
+            NotificationsView.IsVisible = false;
+            SettingsView.IsVisible = false;
+            TopSearchBarArea.IsVisible = true;
         }
 
         private void OnLogViewClicked(object sender, EventArgs e)
@@ -552,6 +616,55 @@ namespace syncdesk
                 {
                     // Just in case the product was deleted from the database!
                     DisplayAlertAsync("Not Found", "This product is no longer in your active inventory.", "OK");
+                }
+            }
+        }
+
+        // --- SETTINGS LOGIC ---
+        private void OnThemeChanged(object sender, EventArgs e)
+        {
+            int selectedIndex = ThemePicker.SelectedIndex;
+            Preferences.Default.Set("AppTheme", selectedIndex);
+            ApplyTheme(selectedIndex);
+        }
+
+        private void ApplyTheme(int themeIndex)
+        {
+            switch (themeIndex)
+            {
+                case 1:
+                    Application.Current.UserAppTheme = AppTheme.Light;
+                    break;
+                case 2:
+                    Application.Current.UserAppTheme = AppTheme.Dark;
+                    break;
+                default:
+                    Application.Current.UserAppTheme = AppTheme.Unspecified; // Follows the Phone's System Setting
+                    break;
+            }
+        }
+
+        private void OnAutoRefreshToggled(object sender, ToggledEventArgs e)
+        {
+            Preferences.Default.Set("AutoRefreshEnabled", e.Value);
+            if (e.Value)
+                _refreshTimer?.Start();
+            else
+                _refreshTimer?.Stop();
+        }
+
+        private void OnRefreshFrequencyChanged(object sender, EventArgs e)
+        {
+            Preferences.Default.Set("AutoRefreshIntervalIndex", RefreshFrequencyPicker.SelectedIndex);
+            if (_refreshTimer != null)
+            {
+                UpdateTimerInterval();
+
+                // If it's currently running, restart it to apply the new speed immediately
+                if (AutoRefreshSwitch.IsToggled)
+                {
+                    _refreshTimer.Stop();
+                    _refreshTimer.Start();
                 }
             }
         }
