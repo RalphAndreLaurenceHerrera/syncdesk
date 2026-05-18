@@ -1,5 +1,4 @@
-﻿using Microsoft.Maui.Networking;
-using Microsoft.Maui.Storage;
+﻿using Microsoft.Maui.Storage;
 using Microsoft.Maui.Controls;
 using Plugin.LocalNotification;
 using Plugin.LocalNotification.Core.Models;
@@ -72,8 +71,6 @@ namespace syncdesk
             _clockTimer.Interval = TimeSpan.FromSeconds(1);
             _clockTimer.Tick += (s, e) =>
             {
-                UpdateNetworkIndicator();
-
                 var timeSpan = DateTime.Now - _lastUpdateTime;
 
                 if (timeSpan.TotalSeconds < 60)
@@ -372,26 +369,6 @@ namespace syncdesk
             ProductDetailsView.IsVisible = false;
             AllProductsView.IsVisible = false;
             AllLogsView.IsVisible = false;
-        }
-        private void Connectivity_ConnectivityChanged(object sender, ConnectivityChangedEventArgs e)
-        {
-            UpdateNetworkIndicator();
-        }
-
-        private void UpdateNetworkIndicator()
-        {
-            // We must force the app to update the UI on the Main Thread
-            Dispatcher.Dispatch(() =>
-            {
-                if (Connectivity.Current.NetworkAccess == NetworkAccess.Internet)
-                {
-                    NetworkIndicator.Color = Colors.LimeGreen;
-                }
-                else
-                {
-                    NetworkIndicator.Color = Colors.Gray;
-                }
-            });
         }
     }
 }
