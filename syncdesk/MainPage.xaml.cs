@@ -17,9 +17,17 @@ namespace syncdesk
 
         // The three lists required for the new dashboard and floating search
         private ObservableCollection<Product> _recentProducts = new ObservableCollection<Product>();
-        private ObservableCollection<AuditLog> _auditLogs = new ObservableCollection<AuditLog>();
         private ObservableCollection<Product> _searchResults = new ObservableCollection<Product>();
         private ObservableCollection<Product> _fullDisplayProducts = new ObservableCollection<Product>();
+
+        private List<AuditLog> _allLogs = new List<AuditLog>();
+        private ObservableCollection<AuditLog> _auditLogs = new ObservableCollection<AuditLog>();
+        private ObservableCollection<AuditLog> _fullDisplayLogs = new ObservableCollection<AuditLog>();
+        private ObservableCollection<AuditLog> _productSpecificLogs = new ObservableCollection<AuditLog>();
+
+        private List<AppNotification> _allNotifications = new List<AppNotification>();
+        private ObservableCollection<AppNotification> _displayNotifications = new ObservableCollection<AppNotification>();
+        private bool _isFirstLoadComplete = false;
 
         private IDispatcherTimer _refreshTimer;
         private IDispatcherTimer _clockTimer;
@@ -27,19 +35,26 @@ namespace syncdesk
         private HashSet<int> _alreadyNotifiedIds = new HashSet<int>();
 
         private Product _currentlySelectedProduct;
+        private AuditLog _currentlySelectedLog;
         private bool _logsExpanded = false;
 
         public MainPage()
         {
             InitializeComponent();
 
-            // Connect our lists to the screen elements
             RecentProductsList.ItemsSource = _recentProducts;
             DashboardAuditLogsList.ItemsSource = _auditLogs;
             SearchDropdownList.ItemsSource = _searchResults;
-            ItemLogsList.ItemsSource = _auditLogs; 
+
+            // CHANGE THESE TWO LINES:
+            ItemLogsList.ItemsSource = _productSpecificLogs;
+            FullLogsList.ItemsSource = _fullDisplayLogs;
+
+            _allNotifications = _inventoryService.LoadLocalNotifications();
+            NotificationsList.ItemsSource = _displayNotifications;
+
             FullInventoryList.ItemsSource = _fullDisplayProducts;
-            FullLogsList.ItemsSource = _auditLogs;
+
             _lastUpdateTime = Preferences.Default.Get("LastSyncTime", DateTime.Now);
             LoadInventory();
             StartAutoRefresh();
@@ -100,7 +115,7 @@ namespace syncdesk
 
             if (downloadedProducts != null && downloadedProducts.Count > 0)
             {
-                // ONLY reset the clock and save the time if we are actually online
+                // 1. Update the connection timer
                 if (Connectivity.Current.NetworkAccess == NetworkAccess.Internet)
                 {
                     _lastUpdateTime = DateTime.Now;
@@ -108,21 +123,48 @@ namespace syncdesk
                 }
 
                 _allProducts = downloadedProducts;
+                _allLogs = downloadedLogs ?? new List<AuditLog>(); // Ensures it never crashes if logs are empty
 
-                // Clear and update the UI lists
-                _recentProducts.Clear();
-                foreach (var item in _allProducts.Take(5))
+                // 2. Setup the Dashboard Logs (Take 5)
+                _auditLogs.Clear();
+                foreach (var log in _allLogs.Take(6))
                 {
-                    _recentProducts.Add(item);
+                    _auditLogs.Add(log);
                 }
 
-                _auditLogs.Clear();
-                if (downloadedLogs != null)
+                // 3. Setup the Complete Logs (Take All)
+                _fullDisplayLogs.Clear();
+                foreach (var log in _allLogs)
                 {
-                    foreach (var log in downloadedLogs.Take(5))
+                    _fullDisplayLogs.Add(log);
+                }
+
+                // 4. Sort the "Recently Updated" products using the log timeline
+                _recentProducts.Clear();
+
+                // Grab the product IDs from the logs (They are already ordered newest to oldest!)
+                var recentProductIds = _allLogs.Select(l => l.product_id).Distinct().ToList();
+
+                var sortedRecentProducts = new List<Product>();
+
+                // Add the products in the exact order they appear in the activity logs
+                foreach (var id in recentProductIds)
+                {
+                    var product = _allProducts.FirstOrDefault(p => p.id == id);
+                    if (product != null)
                     {
-                        _auditLogs.Add(log);
+                        sortedRecentProducts.Add(product);
                     }
+                }
+
+                // Fallback: If there are brand new products with zero logs, stick them at the bottom
+                var untouchedProducts = _allProducts.Where(p => !recentProductIds.Contains(p.id));
+                sortedRecentProducts.AddRange(untouchedProducts);
+
+                // Finally, take the top 5 for the dashboard display
+                foreach (var item in sortedRecentProducts.Take(6))
+                {
+                    _recentProducts.Add(item);
                 }
 
                 UpdateNotificationBadge();
@@ -159,7 +201,7 @@ namespace syncdesk
 
             if (string.IsNullOrWhiteSpace(keyword))
             {
-                filteredList = _allProducts.OrderBy(p => p.product_name).Take(3);
+                filteredList = _allProducts.OrderBy(p => p.product_name).Take(4);
             }
             else
             {
@@ -167,7 +209,7 @@ namespace syncdesk
                     p.product_name.ToLower().Contains(keyword) ||
                     p.sku.ToLower().Contains(keyword))
                     .OrderBy(p => p.product_name)
-                    .Take(3);
+                    .Take(4);
             }
 
             _searchResults.Clear();
@@ -191,7 +233,7 @@ namespace syncdesk
             }
         }
 
-        private void OnCheckAllClicked(object sender, EventArgs e)
+        private void PerformSearch()
         {
             SearchOverlay.IsVisible = false;
 
@@ -206,7 +248,8 @@ namespace syncdesk
             {
                 filteredList = _allProducts.Where(p =>
                     p.product_name.ToLower().Contains(keyword) ||
-                    p.sku.ToLower().Contains(keyword))
+                    p.sku.ToLower().Contains(keyword) ||
+                    p.id.ToString().Contains(keyword))
                     .OrderBy(p => p.product_name);
             }
 
@@ -220,6 +263,16 @@ namespace syncdesk
 
             HideAllViews();
             AllProductsView.IsVisible = true;
+        }
+
+        private void OnSearchButtonClicked(object sender, EventArgs e)
+        {
+            PerformSearch();
+        }
+
+        private void OnSearchButtonPressed(object sender, EventArgs e)
+        {
+            PerformSearch();
         }
 
         private void OnSeeAllRecentClicked(object sender, EventArgs e)
@@ -266,45 +319,23 @@ namespace syncdesk
             DetailLocation.Text = $"Location: {product.warehouse_location}";
             DetailStock.Text = $"Qty: {product.stock}";
 
-            HideAllViews();
-            ProductDetailsView.IsVisible = true;
-
-            _logsExpanded = false;
-            ItemLogsList.IsVisible = false;
-            ToggleLogsButton.Text = "^";
-        }
-
-        private async void UpdateNotificationBadge()
-        {
-            foreach (var product in _allProducts)
+            _productSpecificLogs.Clear();
+            var matchedLogs = _allLogs.Where(l => l.product_id == product.id).ToList();
+            foreach (var log in matchedLogs)
             {
-                if (product.stock < product.low_stock_threshold)
-                {
-                    if (!_alreadyNotifiedIds.Contains(product.id))
-                    {
-                        var request = new NotificationRequest
-                        {
-                            NotificationId = product.id,
-                            Title = "Low Stock Alert",
-                            Subtitle = product.product_name,
-                            Description = $"Only {product.stock} left in stock",
-                            BadgeNumber = 1
-                        };
-                        await LocalNotificationCenter.Current.Show(request);
-                        _alreadyNotifiedIds.Add(product.id);
-                    }
-                }
-                else
-                {
-                    if (_alreadyNotifiedIds.Contains(product.id)) _alreadyNotifiedIds.Remove(product.id);
-                }
+                _productSpecificLogs.Add(log);
             }
 
-            int count = _alreadyNotifiedIds.Count;
-            if (count > 0)
+            HideAllViews();
+            ProductDetailsView.IsVisible = true;
+        }
+        private void UpdateNotificationBadge()
+        {
+            int unreadCount = _allNotifications.Count(n => !n.IsRead);
+            if (unreadCount > 0)
             {
                 NotifBadgeFrame.IsVisible = true;
-                NotifCountLabel.Text = count.ToString();
+                NotifCountLabel.Text = unreadCount.ToString();
             }
             else
             {
@@ -337,13 +368,6 @@ namespace syncdesk
             }
         }
 
-        private void OnToggleLogsClicked(object sender, EventArgs e)
-        {
-            _logsExpanded = !_logsExpanded;
-            ItemLogsList.IsVisible = _logsExpanded;
-            ToggleLogsButton.Text = _logsExpanded ? "v" : "^";
-        }
-
         private void OnRefreshClicked(object sender, EventArgs e)
         {
             if (_refreshTimer != null)
@@ -354,14 +378,135 @@ namespace syncdesk
             LoadInventory();
         }
 
-        private async void OnNotificationsClicked(object sender, EventArgs e)
+        private async void ShowLocalNotification(string title, string description, int id)
         {
-            await DisplayAlert("Notifications", "Your alerts will appear here", "OK");
+            var request = new NotificationRequest { NotificationId = id, Title = title, Description = description, BadgeNumber = 1 };
+            await LocalNotificationCenter.Current.Show(request);
+        }
+
+        private void SyncNotifications()
+        {
+            bool madeChanges = false;
+
+            // 1. Check for Low Stock
+            foreach (var product in _allProducts)
+            {
+                if (product.stock < product.low_stock_threshold)
+                {
+                    var existing = _allNotifications.FirstOrDefault(n => n.Type == "LowStock" && n.ReferenceId == product.id && !n.IsRead);
+                    if (existing == null)
+                    {
+                        var notif = new AppNotification { Title = "Low Stock Alert", ProductName = product.product_name, Description = $"Only {product.stock} left in stock.", Type = "LowStock", ReferenceId = product.id, Date = DateTime.Now.ToString("MMM dd, yyyy hh:mm tt"), IsRead = false };
+                        _allNotifications.Insert(0, notif);
+                        madeChanges = true;
+                        if (_isFirstLoadComplete) ShowLocalNotification(notif.Title, notif.Description, product.id);
+                    }
+                }
+            }
+
+            // 2. Check for New Audit Logs
+            foreach (var log in _allLogs)
+            {
+                var existing = _allNotifications.FirstOrDefault(n => n.Type == "AuditLog" && n.ReferenceId == log.id);
+                if (existing == null)
+                {
+                    var notif = new AppNotification { Title = "New Activity", ProductName = log.product_name, Description = log.action, Type = "AuditLog", ReferenceId = log.id, Date = log.date, IsRead = false };
+                    _allNotifications.Insert(0, notif);
+                    madeChanges = true;
+                    // Add 10000 to the ID so it doesn't conflict with product push notifications!
+                    if (_isFirstLoadComplete) ShowLocalNotification(notif.Title, $"{notif.ProductName}: {notif.Description}", log.id + 10000);
+                }
+            }
+
+            _isFirstLoadComplete = true;
+
+            if (madeChanges) _inventoryService.SaveLocalNotifications(_allNotifications);
+
+            UpdateNotificationsList();
+            UpdateNotificationBadge();
+        }
+
+        private void UpdateNotificationsList()
+        {
+            _displayNotifications.Clear();
+            string filter = NotificationFilterPicker.SelectedItem?.ToString() ?? "All";
+            var filteredList = _allNotifications.AsEnumerable();
+
+            if (filter == "Unread") filteredList = filteredList.Where(n => !n.IsRead);
+            else if (filter == "Read") filteredList = filteredList.Where(n => n.IsRead);
+
+            foreach (var n in filteredList) _displayNotifications.Add(n);
+        }
+
+        private void OnNotificationFilterChanged(object sender, EventArgs e) => UpdateNotificationsList();
+
+        private void OnMarkAllReadClicked(object sender, EventArgs e)
+        {
+            foreach (var n in _allNotifications) n.IsRead = true;
+            _inventoryService.SaveLocalNotifications(_allNotifications);
+            UpdateNotificationsList();
+            UpdateNotificationBadge();
+        }
+
+        private void OnMarkSelectedReadClicked(object sender, EventArgs e)
+        {
+            foreach (var n in _allNotifications.Where(n => n.IsSelected))
+            {
+                n.IsRead = true;
+                n.IsSelected = false; // Reset checkbox
+            }
+            _inventoryService.SaveLocalNotifications(_allNotifications);
+            UpdateNotificationsList();
+            UpdateNotificationBadge();
+        }
+
+        private void OnNotificationViewClicked(object sender, EventArgs e)
+        {
+            var button = sender as Button;
+            if (button?.CommandParameter is AppNotification notif)
+            {
+                // Mark as read immediately!
+                notif.IsRead = true;
+                _inventoryService.SaveLocalNotifications(_allNotifications);
+                UpdateNotificationsList();
+                UpdateNotificationBadge();
+
+                // Redirect appropriately
+                if (notif.Type == "LowStock")
+                {
+                    var product = _allProducts.FirstOrDefault(p => p.id == notif.ReferenceId);
+                    if (product != null) OpenProductDetails(product);
+                }
+                else if (notif.Type == "AuditLog")
+                {
+                    var log = _allLogs.FirstOrDefault(l => l.id == notif.ReferenceId);
+                    // This reuses the exact same logic your other log buttons use!
+                    if (log != null)
+                    {
+                        _currentlySelectedLog = log;
+                        LogDetailAction.Text = log.action;
+                        LogDetailDate.Text = log.date;
+                        LogDetailUser.Text = $"User: {log.user ?? "admin"}";
+                        LogDetailInfo.Text = log.details;
+                        LogDetailProduct.Text = log.product_name;
+                        LogDetailSku.Text = $"SKU: {log.sku}";
+                        HideAllViews();
+                        LogDetailsView.IsVisible = true;
+                    }
+                }
+            }
+        }
+
+        private void OnNotificationsClicked(object sender, EventArgs e)
+        {
+            HideAllViews();
+            NotificationsView.IsVisible = true;
+            UpdateNotificationsList();
         }
 
         private async void OnSettingsClicked(object sender, EventArgs e)
         {
-            await DisplayAlert("Settings", "Settings area coming soon", "OK");
+            await DisplayAlertAsync("Settings", "Settings area coming soon", "OK");
         }
         private void HideAllViews()
         {
@@ -369,6 +514,46 @@ namespace syncdesk
             ProductDetailsView.IsVisible = false;
             AllProductsView.IsVisible = false;
             AllLogsView.IsVisible = false;
+            LogDetailsView.IsVisible = false; // Added this!
+        }
+
+        private void OnLogViewClicked(object sender, EventArgs e)
+        {
+            var button = sender as Button;
+            if (button?.CommandParameter is AuditLog selectedLog)
+            {
+                _currentlySelectedLog = selectedLog;
+
+                // Populate the Log Details screen
+                LogDetailAction.Text = selectedLog.action;
+                LogDetailDate.Text = selectedLog.date;
+                LogDetailUser.Text = $"User: {selectedLog.user ?? "admin"}";
+                LogDetailInfo.Text = selectedLog.details;
+                LogDetailProduct.Text = selectedLog.product_name;
+                LogDetailSku.Text = $"SKU: {selectedLog.sku}";
+
+                HideAllViews();
+                LogDetailsView.IsVisible = true;
+            }
+        }
+
+        private void OnViewProductFromLogClicked(object sender, EventArgs e)
+        {
+            if (_currentlySelectedLog != null)
+            {
+                // Search our downloaded inventory for the matching product ID
+                var product = _allProducts.FirstOrDefault(p => p.id == _currentlySelectedLog.product_id);
+
+                if (product != null)
+                {
+                    OpenProductDetails(product);
+                }
+                else
+                {
+                    // Just in case the product was deleted from the database!
+                    DisplayAlertAsync("Not Found", "This product is no longer in your active inventory.", "OK");
+                }
+            }
         }
     }
 }

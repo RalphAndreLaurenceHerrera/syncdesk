@@ -137,5 +137,22 @@ namespace syncdesk
 
             return new List<AuditLog>();
         }
+
+        public List<AppNotification> LoadLocalNotifications()
+        {
+            string path = Path.Combine(FileSystem.AppDataDirectory, "notifications.json");
+            if (File.Exists(path))
+            {
+                string json = File.ReadAllText(path);
+                return JsonSerializer.Deserialize<List<AppNotification>>(json) ?? new List<AppNotification>();
+            }
+            return new List<AppNotification>();
+        }
+
+        public void SaveLocalNotifications(List<AppNotification> notifications)
+        {
+            string path = Path.Combine(FileSystem.AppDataDirectory, "notifications.json");
+            File.WriteAllText(path, JsonSerializer.Serialize(notifications));
+        }
     }
 }
