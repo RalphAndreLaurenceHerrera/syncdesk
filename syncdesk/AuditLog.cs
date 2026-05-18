@@ -7,12 +7,11 @@ namespace syncdesk
     public class AuditLog
     {
         public int id { get; set; }
-        public int product_id { get; set; }
         public string product_name { get; set; }
+        public string sku { get; set; }
         public string action { get; set; }
-        public DateTime created_at { get; set; }
-
-        // This converts the raw database timestamp into the friendly "May 18, 2026" format for the UI
-        public string date => created_at.ToString("MMM dd, yyyy");
+        public string details { get; set; }
+        public string user { get; set; }
+        public string date { get; set; }
     }
 }

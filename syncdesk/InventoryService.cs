@@ -1,8 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Text;
 using System.Text.Json;
+using System.Threading.Tasks;
+using Microsoft.Maui.Networking;
+using Microsoft.Maui.Storage;
 
 namespace syncdesk
 {
@@ -21,35 +25,47 @@ namespace syncdesk
             // Note: 10.0.2.2 is the address Android emulators use to connect to your computer's localhost
             // If testing on Windows Machine directly, use http://localhost/syncdesk/api_inventory.php
             //string url = "http://10.0.2.2/syncdesk/api_inventory.php";
+            string url = "http://100.75.86.125/syncdesk/api_inventory.php"; 
+            
+            string localFilePath = Path.Combine(FileSystem.AppDataDirectory, "inventory_backup.json");
 
-            //string url = "http://192.168.18.6/syncdesk/api_inventory.php";
-            string url = "http://100.75.86.125/syncdesk/api_inventory.php";
-
-            try
+            var options = new JsonSerializerOptions
             {
-                HttpResponseMessage response = await _client.GetAsync(url);
+                PropertyNameCaseInsensitive = true,
+                NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString
+            };
 
-                if (response.IsSuccessStatusCode)
+            // CHECK 1: Instantly check if we have internet to avoid 15-second lag spikes
+            if (Connectivity.Current.NetworkAccess == NetworkAccess.Internet)
+            {
+                try
                 {
-                    string json = await response.Content.ReadAsStringAsync();
+                    HttpResponseMessage response = await _client.GetAsync(url);
 
-                    // Add these options to handle the quotes around numbers
-                    var options = new JsonSerializerOptions
+                    if (response.IsSuccessStatusCode)
                     {
-                        PropertyNameCaseInsensitive = true,
-                        NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString
-                    };
+                        string json = await response.Content.ReadAsStringAsync();
 
-                    List<Product> products = JsonSerializer.Deserialize<List<Product>>(json, options);
-                    return products ?? new List<Product>();
+                        // Save the fresh data directly to the phone storage
+                        File.WriteAllText(localFilePath, json);
+
+                        return JsonSerializer.Deserialize<List<Product>>(json, options) ?? new List<Product>();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Internet fetch failed: {ex.Message}");
                 }
             }
-            catch (Exception ex)
+
+            // FALLBACK: If we are offline or the server is down, load the local file instantly
+            if (File.Exists(localFilePath))
             {
-                Console.WriteLine($"Error fetching data: {ex.Message}");
+                string localJson = File.ReadAllText(localFilePath);
+                return JsonSerializer.Deserialize<List<Product>>(localJson, options) ?? new List<Product>();
             }
 
-            return new List<Product>(); 
+            return new List<Product>();
         }
 
         public async Task<bool> UpdateStockAsync(int productId, int newStock)
@@ -80,19 +96,44 @@ namespace syncdesk
 
         public async Task<List<AuditLog>> GetAuditLogsAsync()
         {
-            try
+            string url = "http://100.75.86.125/syncdesk/api_logs.php";
+            string localFilePath = Path.Combine(FileSystem.AppDataDirectory, "logs_backup.json");
+
+            var options = new JsonSerializerOptions
             {
-                var response = await _client.GetAsync("http://100.75.86.125y/syncdesk/api_logs.php");
-                if (response.IsSuccessStatusCode)
+                PropertyNameCaseInsensitive = true,
+                NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString
+            };
+
+            // CHECK 2: Check internet so we don't lag while trying to fetch logs
+            if (Connectivity.Current.NetworkAccess == NetworkAccess.Internet)
+            {
+                try
                 {
-                    var json = await response.Content.ReadAsStringAsync();
-                    return JsonSerializer.Deserialize<List<AuditLog>>(json);
+                    var response = await _client.GetAsync(url);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var json = await response.Content.ReadAsStringAsync();
+
+                        // Save the fresh logs directly to the phone storage
+                        File.WriteAllText(localFilePath, json);
+
+                        return JsonSerializer.Deserialize<List<AuditLog>>(json, options) ?? new List<AuditLog>();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error fetching logs: {ex.Message}");
                 }
             }
-            catch (Exception ex)
+
+            // FALLBACK: Load the offline logs if the internet is down!
+            if (File.Exists(localFilePath))
             {
-                Console.WriteLine($"Error fetching logs: {ex.Message}");
+                string localJson = File.ReadAllText(localFilePath);
+                return JsonSerializer.Deserialize<List<AuditLog>>(localJson, options) ?? new List<AuditLog>();
             }
+
             return new List<AuditLog>();
         }
     }

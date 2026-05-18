@@ -1,4 +1,6 @@
-﻿using Microsoft.Maui.Controls;
+﻿using Microsoft.Maui.Networking;
+using Microsoft.Maui.Storage;
+using Microsoft.Maui.Controls;
 using Plugin.LocalNotification;
 using Plugin.LocalNotification.Core.Models;
 using System;
@@ -39,6 +41,7 @@ namespace syncdesk
             ItemLogsList.ItemsSource = _auditLogs; 
             FullInventoryList.ItemsSource = _fullDisplayProducts;
             FullLogsList.ItemsSource = _auditLogs;
+            _lastUpdateTime = Preferences.Default.Get("LastSyncTime", DateTime.Now);
             LoadInventory();
             StartAutoRefresh();
             StartClockTimer();
@@ -69,15 +72,25 @@ namespace syncdesk
             _clockTimer.Interval = TimeSpan.FromSeconds(1);
             _clockTimer.Tick += (s, e) =>
             {
-                var seconds = Math.Floor((DateTime.Now - _lastUpdateTime).TotalSeconds);
-                if (seconds < 60)
+                UpdateNetworkIndicator();
+
+                var timeSpan = DateTime.Now - _lastUpdateTime;
+
+                if (timeSpan.TotalSeconds < 60)
                 {
-                    LastUpdatedLabel.Text = $"updated {seconds}s ago";
+                    LastUpdatedLabel.Text = $"updated {Math.Floor(timeSpan.TotalSeconds)}s ago";
+                }
+                else if (timeSpan.TotalMinutes < 60)
+                {
+                    LastUpdatedLabel.Text = $"updated {Math.Floor(timeSpan.TotalMinutes)}m ago";
+                }
+                else if (timeSpan.TotalHours < 24)
+                {
+                    LastUpdatedLabel.Text = $"updated {Math.Floor(timeSpan.TotalHours)}h ago";
                 }
                 else
                 {
-                    var minutes = Math.Floor((DateTime.Now - _lastUpdateTime).TotalMinutes);
-                    LastUpdatedLabel.Text = $"updated {minutes}m ago";
+                    LastUpdatedLabel.Text = $"updated {Math.Floor(timeSpan.TotalDays)}d ago";
                 }
             };
             _clockTimer.Start();
@@ -86,26 +99,30 @@ namespace syncdesk
         private async void LoadInventory()
         {
             var downloadedProducts = await _inventoryService.GetProductsAsync();
-            var downloadedLogs = await _inventoryService.GetAuditLogsAsync(); // New!
+            var downloadedLogs = await _inventoryService.GetAuditLogsAsync();
 
             if (downloadedProducts != null && downloadedProducts.Count > 0)
             {
-                _lastUpdateTime = DateTime.Now;
-                LastUpdatedLabel.Text = "updated 0s ago";
+                // ONLY reset the clock and save the time if we are actually online
+                if (Connectivity.Current.NetworkAccess == NetworkAccess.Internet)
+                {
+                    _lastUpdateTime = DateTime.Now;
+                    Preferences.Default.Set("LastSyncTime", _lastUpdateTime);
+                }
+
                 _allProducts = downloadedProducts;
 
                 // Clear and update the UI lists
                 _recentProducts.Clear();
-                foreach (var item in _allProducts.Take(4))
+                foreach (var item in _allProducts.Take(5))
                 {
                     _recentProducts.Add(item);
                 }
 
-                // Add the real logs to the UI!
                 _auditLogs.Clear();
                 if (downloadedLogs != null)
                 {
-                    foreach (var log in downloadedLogs)
+                    foreach (var log in downloadedLogs.Take(5))
                     {
                         _auditLogs.Add(log);
                     }
@@ -355,6 +372,26 @@ namespace syncdesk
             ProductDetailsView.IsVisible = false;
             AllProductsView.IsVisible = false;
             AllLogsView.IsVisible = false;
+        }
+        private void Connectivity_ConnectivityChanged(object sender, ConnectivityChangedEventArgs e)
+        {
+            UpdateNetworkIndicator();
+        }
+
+        private void UpdateNetworkIndicator()
+        {
+            // We must force the app to update the UI on the Main Thread
+            Dispatcher.Dispatch(() =>
+            {
+                if (Connectivity.Current.NetworkAccess == NetworkAccess.Internet)
+                {
+                    NetworkIndicator.Color = Colors.LimeGreen;
+                }
+                else
+                {
+                    NetworkIndicator.Color = Colors.Gray;
+                }
+            });
         }
     }
 }
