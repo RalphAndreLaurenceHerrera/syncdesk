@@ -2,41 +2,207 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="syncdesk.MainPage"
-             Title="SyncDesk Inventory">
+             Title="SyncDesk Inventory"
+             BackgroundColor="{AppThemeBinding Light=#f5f4f0, Dark=Black}">
 
-    <ContentPage.ToolbarItems>
-        <ToolbarItem Text="⟳" Clicked="OnRefreshClicked" />
-        <ToolbarItem Text="🔔" Clicked="OnNotificationsClicked" />
-    </ContentPage.ToolbarItems>
+    <Shell.TitleView>
+        <Grid ColumnDefinitions="*, Auto, Auto, Auto, Auto" Padding="0, 0, 15, 0" BackgroundColor="{AppThemeBinding Light=White, Dark=#121212}">
+            <Label Text="SyncDesk" FontSize="20" FontAttributes="Bold" VerticalOptions="Center" TextColor="{AppThemeBinding Light=Black, Dark=White}" />
+            <Label x:Name="LastUpdatedLabel" Text="updated 0s ago" FontSize="12" TextColor="Gray" VerticalOptions="Center" Margin="0, 0, 10, 0" Grid.Column="1" />
+            <Button Text="⟳" Clicked="OnRefreshClicked" BackgroundColor="Transparent" TextColor="{AppThemeBinding Light=Black, Dark=White}" FontSize="20" Grid.Column="2" Padding="5" />
 
-    <ScrollView>
-        <VerticalStackLayout Padding="20" Spacing="15">
+            <Grid Grid.Column="3" WidthRequest="40" HeightRequest="40" Margin="0,0,5,0">
+                <Button Text="🔔" Clicked="OnNotificationsClicked" BackgroundColor="Transparent" TextColor="{AppThemeBinding Light=Black, Dark=White}" FontSize="20" Padding="5" />
 
-            <Label Text="Warehouse Stock" 
-                   FontSize="24" 
-                   FontAttributes="Bold" />
+                <Border x:Name="NotifBadgeFrame" IsVisible="False" BackgroundColor="#c0392b" StrokeThickness="0" StrokeShape="RoundRectangle 10" HeightRequest="20" WidthRequest="20" HorizontalOptions="End" VerticalOptions="Start" Padding="0">
+                    <Label x:Name="NotifCountLabel" Text="0" TextColor="White" FontSize="10" HorizontalOptions="Center" VerticalOptions="Center" FontAttributes="Bold"/>
+                </Border>
+            </Grid>
 
-            <SearchBar x:Name="ProductSearchBar" 
-                   Placeholder="Search by name or SKU..." 
-                   TextChanged="OnSearchBarTextChanged" />
+            <Button Text="⚙️" Clicked="OnSettingsClicked" BackgroundColor="Transparent" TextColor="{AppThemeBinding Light=Black, Dark=White}" FontSize="20" Grid.Column="4" Padding="5" />
+        </Grid>
+    </Shell.TitleView>
 
-            <CollectionView x:Name="InventoryList" SelectionMode="Single" SelectionChanged="OnProductSelected">
-                <CollectionView.ItemTemplate>
-                    <DataTemplate>
-                        <Border Margin="0,5,0,5" Padding="15" StrokeShape="8" BackgroundColor="#f1f5f9" Stroke="Transparent">
-                            <VerticalStackLayout>
-                                <Label Text="{Binding product_name}" FontSize="18" FontAttributes="Bold" TextColor="#0f172a" />
-                                <Label Text="{Binding sku, StringFormat='SKU: {0}'}" FontSize="14" TextColor="#64748b" />
+    <Grid RowDefinitions="Auto, *">
 
-                                <HorizontalStackLayout Spacing="10" Margin="0,5,0,0">
-                                    <Label Text="{Binding stock, StringFormat='Stock: {0}'}" FontSize="14" FontAttributes="Bold" TextColor="#14b8a6" />
-                                    <Label Text="{Binding warehouse_location}" FontSize="14" TextColor="#64748b" />
-                                </HorizontalStackLayout>
-                            </VerticalStackLayout>
-                        </Border>
-                    </DataTemplate>
-                </CollectionView.ItemTemplate>
-            </CollectionView>
+        <VerticalStackLayout Grid.Row="0" Padding="20,20,20,10" ZIndex="2">
+            <Border Stroke="{AppThemeBinding Light=#dedad4, Dark=#333333}" StrokeShape="RoundRectangle 8" BackgroundColor="{AppThemeBinding Light=White, Dark=#1a1a1a}" Padding="0">
+                <SearchBar x:Name="ProductSearchBar" Placeholder="Search products" TextChanged="OnSearchBarTextChanged" Focused="OnSearchBarFocused" Unfocused="OnSearchBarUnfocused" BackgroundColor="Transparent" TextColor="{AppThemeBinding Light=Black, Dark=White}" />
+            </Border>
         </VerticalStackLayout>
-    </ScrollView>
+
+        <ScrollView Grid.Row="1" ZIndex="1">
+            <VerticalStackLayout Padding="20,0,20,20" Spacing="20">
+
+                <VerticalStackLayout x:Name="DashboardView" IsVisible="True" Spacing="20">
+
+                    <Border Padding="15" StrokeShape="RoundRectangle 16" BackgroundColor="{AppThemeBinding Light=White, Dark=#1a1a1a}" Stroke="{AppThemeBinding Light=#dedad4, Dark=#333333}">
+                        <VerticalStackLayout Spacing="15">
+                            <Grid>
+                                <Label Text="RECENTLY UPDATED" FontSize="12" FontAttributes="Bold" TextColor="Gray" VerticalOptions="Center"/>
+                                <Label Text="See All" HorizontalOptions="End" TextColor="#2D8F92" FontAttributes="Bold" FontSize="12" VerticalOptions="Center">
+                                    <Label.GestureRecognizers>
+                                        <TapGestureRecognizer Tapped="OnSeeAllRecentClicked" />
+                                    </Label.GestureRecognizers>
+                                </Label>
+                            </Grid>
+
+                            <CollectionView x:Name="RecentProductsList">
+                                <CollectionView.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid ColumnDefinitions="*, Auto, Auto" Padding="0,10">
+                                            <VerticalStackLayout Grid.Column="0" VerticalOptions="Center">
+                                                <Label Text="{Binding product_name}" FontSize="15" FontAttributes="Bold" TextColor="{AppThemeBinding Light=#1a1916, Dark=White}" />
+                                                <Label Text="{Binding sku}" FontSize="12" TextColor="Gray" />
+                                            </VerticalStackLayout>
+
+                                            <Label Grid.Column="1" Text="{Binding stock, StringFormat='Qty: {0}'}" FontSize="14" FontAttributes="Bold" TextColor="{AppThemeBinding Light=Black, Dark=White}" VerticalOptions="Center" Margin="0,0,15,0" />
+
+                                            <Button Grid.Column="2" Text="View" BackgroundColor="{AppThemeBinding Light=#eef2ff, Dark=#2D8F92}" TextColor="{AppThemeBinding Light=#2D8F92, Dark=White}" CornerRadius="5" Padding="15,5" CommandParameter="{Binding .}" Clicked="OnProductViewClicked" FontAttributes="Bold" HeightRequest="35"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </CollectionView.ItemTemplate>
+                            </CollectionView>
+                        </VerticalStackLayout>
+                    </Border>
+
+                    <Border Padding="15" StrokeShape="RoundRectangle 16" BackgroundColor="{AppThemeBinding Light=White, Dark=#1a1a1a}" Stroke="{AppThemeBinding Light=#dedad4, Dark=#333333}">
+                        <VerticalStackLayout Spacing="15">
+                            <Grid>
+                                <Label Text="AUDIT LOGS" FontSize="12" FontAttributes="Bold" TextColor="Gray" VerticalOptions="Center"/>
+                                <Label Text="See All" HorizontalOptions="End" TextColor="#2D8F92" FontAttributes="Bold" FontSize="12" VerticalOptions="Center">
+                                    <Label.GestureRecognizers>
+                                        <TapGestureRecognizer Tapped="OnSeeAllLogsClicked" />
+                                    </Label.GestureRecognizers>
+                                </Label>
+                            </Grid>
+
+                            <CollectionView x:Name="DashboardAuditLogsList">
+                                <CollectionView.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid ColumnDefinitions="*, Auto, Auto" Padding="0,10">
+                                            <VerticalStackLayout Grid.Column="0" VerticalOptions="Center">
+                                                <Label Text="{Binding action}" FontSize="15" FontAttributes="Bold" TextColor="{AppThemeBinding Light=#1a1916, Dark=White}" />
+                                                <Label Text="{Binding product_name}" FontSize="12" TextColor="Gray" />
+                                            </VerticalStackLayout>
+
+                                            <Label Grid.Column="1" Text="{Binding date}" FontSize="13" TextColor="{AppThemeBinding Light=#2D8F92, Dark=#64ffda}" VerticalOptions="Center" Margin="0,0,15,0" />
+
+                                            <Button Grid.Column="2" Text="View" BackgroundColor="{AppThemeBinding Light=#eef2ff, Dark=#2D8F92}" TextColor="{AppThemeBinding Light=#2D8F92, Dark=White}" CornerRadius="5" Padding="15,5" FontAttributes="Bold" HeightRequest="35"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </CollectionView.ItemTemplate>
+                            </CollectionView>
+                        </VerticalStackLayout>
+                    </Border>
+                </VerticalStackLayout>
+
+                <VerticalStackLayout x:Name="ProductDetailsView" IsVisible="False" Spacing="15">
+                    <Button Text="← Back to Dashboard" HorizontalOptions="Start" BackgroundColor="Transparent" TextColor="#2D8F92" Clicked="OnBackToDashboardClicked" Padding="0" FontAttributes="Bold" />
+
+                    <Border Padding="15" StrokeShape="RoundRectangle 12" BackgroundColor="{AppThemeBinding Light=White, Dark=#1a1a1a}" Stroke="{AppThemeBinding Light=#dedad4, Dark=#333333}">
+                        <Grid ColumnDefinitions="100, *" ColumnSpacing="15">
+                            <BoxView Grid.Column="0" Color="{AppThemeBinding Light=#e0e0e0, Dark=#333333}" HeightRequest="100" CornerRadius="5" />
+                            <VerticalStackLayout Grid.Column="1" Spacing="2">
+                                <Label Text="Product:" FontSize="12" TextColor="Gray" />
+                                <Label x:Name="DetailName" Text="Widget" FontSize="16" FontAttributes="Bold" TextColor="{AppThemeBinding Light=Black, Dark=White}" />
+                                <Label x:Name="DetailSku" Text="SKU" FontSize="12" TextColor="Gray" Margin="0,5,0,0" />
+                                <Label x:Name="DetailLocation" Text="Location" FontSize="12" TextColor="Gray" />
+                                <Label x:Name="DetailStock" Text="Qty" FontSize="14" FontAttributes="Bold" TextColor="{AppThemeBinding Light=Black, Dark=White}" Margin="0,5,0,0" />
+                            </VerticalStackLayout>
+                        </Grid>
+                    </Border>
+
+                    <Border Padding="20" StrokeShape="RoundRectangle 12" BackgroundColor="{AppThemeBinding Light=#e8f5e9, Dark=#1a2a2a}" Stroke="#2D8F92">
+                        <VerticalStackLayout Spacing="15">
+                            <Label Text="Stock Check / Update" FontSize="16" FontAttributes="Bold" TextColor="{AppThemeBinding Light=Black, Dark=White}" />
+                            <Button Text="Update Stock" BackgroundColor="#2D8F92" TextColor="White" CornerRadius="8" HeightRequest="45" Clicked="OnUpdateStockClicked" FontAttributes="Bold" />
+                        </VerticalStackLayout>
+                    </Border>
+
+                    <Border BackgroundColor="{AppThemeBinding Light=#f8f9fa, Dark=#121212}" Stroke="{AppThemeBinding Light=#dedad4, Dark=#333333}" StrokeShape="RoundRectangle 12" Padding="20,10">
+                        <VerticalStackLayout>
+                            <Grid>
+                                <Label Text="Recent Item Logs" FontSize="16" FontAttributes="Bold" VerticalOptions="Center" TextColor="{AppThemeBinding Light=Black, Dark=White}" />
+                                <Button x:Name="ToggleLogsButton" Text="^" BackgroundColor="Transparent" TextColor="{AppThemeBinding Light=Black, Dark=White}" FontSize="20" HorizontalOptions="End" Clicked="OnToggleLogsClicked" Padding="0" WidthRequest="40" HeightRequest="40" />
+                            </Grid>
+                            <CollectionView x:Name="ItemLogsList" IsVisible="False" HeightRequest="100" Margin="0,10,0,0">
+                                <CollectionView.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid ColumnDefinitions="*, Auto" Padding="0,5">
+                                            <Label Text="{Binding action}" FontSize="13" TextColor="Gray" />
+                                            <Label Text="{Binding date}" FontSize="13" TextColor="{AppThemeBinding Light=Black, Dark=White}" FontAttributes="Bold" Grid.Column="1" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </CollectionView.ItemTemplate>
+                            </CollectionView>
+                        </VerticalStackLayout>
+                    </Border>
+
+                </VerticalStackLayout>
+                <VerticalStackLayout x:Name="AllProductsView" IsVisible="False" Spacing="15">
+                    <Button Text="← Back to Dashboard" HorizontalOptions="Start" BackgroundColor="Transparent" TextColor="#2D8F92" Clicked="OnBackToDashboardClicked" Padding="0" FontAttributes="Bold" />
+                    <Label Text="Inventory Items" FontSize="20" FontAttributes="Bold" TextColor="{AppThemeBinding Light=Black, Dark=White}" />
+
+                    <CollectionView x:Name="FullInventoryList">
+                        <CollectionView.ItemTemplate>
+                            <DataTemplate>
+                                <Border Margin="0,0,0,10" Padding="15" StrokeShape="RoundRectangle 8" BackgroundColor="{AppThemeBinding Light=White, Dark=#1a1a1a}" Stroke="{AppThemeBinding Light=#dedad4, Dark=#333333}">
+                                    <Grid ColumnDefinitions="*, Auto, Auto">
+                                        <VerticalStackLayout Grid.Column="0" VerticalOptions="Center">
+                                            <Label Text="{Binding product_name}" FontSize="16" FontAttributes="Bold" TextColor="{AppThemeBinding Light=#1a1916, Dark=White}" />
+                                            <Label Text="{Binding sku}" FontSize="12" TextColor="Gray" />
+                                        </VerticalStackLayout>
+                                        <Label Grid.Column="1" Text="{Binding stock, StringFormat='Qty: {0}'}" FontSize="14" FontAttributes="Bold" TextColor="{AppThemeBinding Light=Black, Dark=White}" VerticalOptions="Center" Margin="0,0,15,0" />
+                                        <Button Grid.Column="2" Text="View" BackgroundColor="{AppThemeBinding Light=#eef2ff, Dark=#2D8F92}" TextColor="{AppThemeBinding Light=#2D8F92, Dark=White}" CornerRadius="5" Padding="15,5" CommandParameter="{Binding .}" Clicked="OnProductViewClicked" FontAttributes="Bold" />
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </CollectionView.ItemTemplate>
+                    </CollectionView>
+                </VerticalStackLayout>
+
+                <VerticalStackLayout x:Name="AllLogsView" IsVisible="False" Spacing="15">
+                    <Button Text="← Back to Dashboard" HorizontalOptions="Start" BackgroundColor="Transparent" TextColor="#2D8F92" Clicked="OnBackToDashboardClicked" Padding="0" FontAttributes="Bold" />
+                    <Label Text="Complete Audit Logs" FontSize="20" FontAttributes="Bold" TextColor="{AppThemeBinding Light=Black, Dark=White}" />
+
+                    <CollectionView x:Name="FullLogsList">
+                        <CollectionView.ItemTemplate>
+                            <DataTemplate>
+                                <Border Margin="0,0,0,10" Padding="15" StrokeShape="RoundRectangle 8" BackgroundColor="{AppThemeBinding Light=White, Dark=#1a1a1a}" Stroke="{AppThemeBinding Light=#dedad4, Dark=#333333}">
+                                    <Grid ColumnDefinitions="*, Auto">
+                                        <VerticalStackLayout Grid.Column="0" VerticalOptions="Center">
+                                            <Label Text="{Binding action}" FontSize="15" FontAttributes="Bold" TextColor="{AppThemeBinding Light=#1a1916, Dark=White}" />
+                                            <Label Text="{Binding product_name}" FontSize="12" TextColor="Gray" />
+                                        </VerticalStackLayout>
+                                        <Label Grid.Column="1" Text="{Binding date}" FontSize="13" TextColor="{AppThemeBinding Light=#2D8F92, Dark=#64ffda}" VerticalOptions="Center" />
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </CollectionView.ItemTemplate>
+                    </CollectionView>
+                </VerticalStackLayout>
+            </VerticalStackLayout>
+        </ScrollView>
+
+        <Border x:Name="SearchOverlay" Grid.Row="1" IsVisible="False" VerticalOptions="Start" Margin="20,0,20,0" ZIndex="10" BackgroundColor="{AppThemeBinding Light=White, Dark=#1a1a1a}" Stroke="{AppThemeBinding Light=#dedad4, Dark=#333333}" StrokeShape="RoundRectangle 8">
+            <Border.Shadow>
+                <Shadow Brush="Black" Offset="0,4" Radius="8" Opacity="0.15" />
+            </Border.Shadow>
+            <VerticalStackLayout>
+                <CollectionView x:Name="SearchDropdownList" SelectionMode="Single" SelectionChanged="OnSearchResultSelected">
+                    <CollectionView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Padding="15,10">
+                                <Label Text="{Binding product_name}" FontSize="15" FontAttributes="Bold" TextColor="{AppThemeBinding Light=Black, Dark=White}" VerticalOptions="Center"/>
+                            </Grid>
+                        </DataTemplate>
+                    </CollectionView.ItemTemplate>
+                </CollectionView>
+
+                <Button Text="Check all items" BackgroundColor="#eef2ff" TextColor="#2D8F92" CornerRadius="0" FontAttributes="Bold" Clicked="OnCheckAllClicked" />
+            </VerticalStackLayout>
+        </Border>
+
+    </Grid>
 </ContentPage>

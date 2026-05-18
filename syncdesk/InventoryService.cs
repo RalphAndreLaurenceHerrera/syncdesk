@@ -54,7 +54,7 @@ namespace syncdesk
 
         public async Task<bool> UpdateStockAsync(int productId, int newStock)
         {
-            // Make sure to use your actual computer IP address here
+            // Point directly to your custom API file
             string url = "http://100.75.86.125/syncdesk/api_update_stock.php";
 
             var payload = new
@@ -71,10 +71,29 @@ namespace syncdesk
                 HttpResponseMessage response = await _client.PostAsync(url, content);
                 return response.IsSuccessStatusCode;
             }
-            catch
+            catch (Exception ex)
             {
+                Console.WriteLine($"Error updating stock: {ex.Message}");
                 return false;
             }
+        }
+
+        public async Task<List<AuditLog>> GetAuditLogsAsync()
+        {
+            try
+            {
+                var response = await _client.GetAsync("http://100.75.86.125y/syncdesk/api_logs.php");
+                if (response.IsSuccessStatusCode)
+                {
+                    var json = await response.Content.ReadAsStringAsync();
+                    return JsonSerializer.Deserialize<List<AuditLog>>(json);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error fetching logs: {ex.Message}");
+            }
+            return new List<AuditLog>();
         }
     }
 }
